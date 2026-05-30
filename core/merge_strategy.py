@@ -48,17 +48,17 @@ class MergeAction:
 
 class MergeStrategy:
 
-    def plan(self, grid: dict[tuple, DetectedItem]) -> list[MergeAction]:
+    def plan(self, grid: dict[int, DetectedItem]) -> list[MergeAction]:
         from collections import defaultdict
         
-        # 1. Check how many of every template exist and group them by label
+        # 1. Group items by label
         by_label: dict[str, list[DetectedItem]] = defaultdict(list)
         for item in grid.values():
             by_label[item.label].append(item)
 
         actions = []
         for label, items in by_label.items():
-            # 2. We need at least 3 items to perform a valid merge
+            # 2. Require at least 3 items to merge
             if len(items) < 3:
                 continue
                 
@@ -76,12 +76,11 @@ class MergeStrategy:
                 src2 = min(remaining, key=lambda x: self._dist(target, x))
                 remaining.remove(src2)
                 
-                # Create the consecutive sequence: Drag Item 1 -> Target, then Drag Item 2 -> Target
+                # Drag Item 1 -> Target, then Drag Item 2 -> Target
                 actions.append(MergeAction(src1, target, label, tier))
                 actions.append(MergeAction(src2, target, label, tier))
 
-        # 4. Prioritize higher tier items first. 
-        # (We only sort by tier so that the sequence of 2 drags we planned above doesn't get shuffled)
+        # 4. Prioritize higher tier items first
         actions.sort(key=lambda a: -a.tier)
         return actions
 

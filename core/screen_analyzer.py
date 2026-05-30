@@ -72,9 +72,18 @@ class ScreenAnalyzer:
 
         return sorted(detected, key=lambda d: (d.grid_row, d.grid_col))
 
-    def build_grid(self, items: list[DetectedItem]) -> dict[tuple, DetectedItem]:
-        return {(i.grid_row, i.grid_col): i
-                for i in items if i.grid_row >= 0 and i.grid_col >= 0}
+    def build_grid(self, items: list[DetectedItem]) -> dict[int, DetectedItem]:
+        # bypasses the strict (row, col) grid so items never overwrite each other
+        return {idx: item for idx, item in enumerate(items)}
+
+    def find_merge_groups(
+        self, grid: dict[int, DetectedItem]
+    ) -> list[list[DetectedItem]]:
+        """Return lists of 3+ items with the same label."""
+        by_label: dict[str, list] = defaultdict(list)
+        for item in grid.values():
+            by_label[item.label].append(item)
+        return [items for items in by_label.values() if len(items) >= 3]
 
     def find_merge_groups(
         self, grid: dict[tuple, DetectedItem]
