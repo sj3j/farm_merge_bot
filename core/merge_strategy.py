@@ -7,12 +7,7 @@ Higher-tier (rarer) items are prioritized.
 
 from dataclasses import dataclass
 from typing import Optional
-from core.screen_analyzer import DetectedItem
-
-
-# ── Item tier chains ───────────────────────────────────────────────────────────
-# Each list = ascending merge tiers of one family.
-# Add / edit to match the actual game items you've seen.
+from core.screen_analyzer import DetectedItem, ScreenAnalyzer
 
 # ── Item tier chains ───────────────────────────────────────────────────────────
 # Each list = ascending merge tiers of one family.
@@ -62,30 +57,59 @@ class MergeStrategy:
             by_label[item.label].append(item)
 
         actions = []
+        
+        # 2. Map all occupied cells to prevent dragging items on top of each other
+        occupied = set((item.grid_row, item.grid_col) for item in grid.values())
+
         for label, items in by_label.items():
-            # 2. Require at least 3 items to merge
+            # 3. Require at least 3 items to merge
             if len(items) < 3:
                 continue
                 
             tier      = LABEL_TIER.get(label, 0)
             remaining = list(items)
             
-            # 3. Pull them together in groups of 3
+            # 4. Pull them together in groups of 3
             while len(remaining) >= 3:
-                # Find the closest pair (Item 1 and our Anchor Target)
+                # Find the closest pair (Item A and our Anchor Item B)
                 src1, target = self._closest_pair(remaining)
                 remaining.remove(src1)
                 remaining.remove(target)
                 
-                # Find the third item closest to our Anchor Target (Item 2)
+                # Find the third item closest to Item B (Item C)
                 src2 = min(remaining, key=lambda x: self._dist(target, x))
                 remaining.remove(src2)
                 
-                # Drag Item 1 -> Target, then Drag Item 2 -> Target
-                actions.append(MergeAction(src1, target, label, tier))
-                actions.append(MergeAction(src2, target, label, tier))
+                # Check if A and B are already beside each other
+                if self._dist(src1, target) == 1:
+                    # They are adjacent! We only need 1 drag: Move C onto B.
+                    actions.append(MergeAction(src2, target, label, tier))
+                else:
+                    # They are NOT adjacent. Find an empty spot next to B.
+                    empty_spot = self._get_empty_neighbor(target.grid_row, target.grid_col, occupied)
+                    
+                    if empty_spot:
+                        er, ec = empty_spot
+                        
+                        # Translate the empty grid cell back into physical mouse pixels
+                        px = ScreenAnalyzer.GRID_ORIGIN_X + (ec * ScreenAnalyzer.CELL_W) + (ScreenAnalyzer.CELL_W // 2)
+                        py = ScreenAnalyzer.GRID_ORIGIN_Y + (er * ScreenAnalyzer.CELL_H) + (ScreenAnalyzer.CELL_H // 2)
+                        
+                        virtual_dst = DetectedItem(label="empty_slot", cx=px, cy=py, grid_row=er, grid_col=ec, conf=1.0)
+                        
+                        # Drag A to the empty slot beside B
+                        actions.append(MergeAction(src1, virtual_dst, label, tier))
+                        
+                        # Mark that empty slot as occupied so we don't double-stack it this cycle
+                        occupied.add((er, ec))
+                    else:
+                        # Fallback: If B is totally surrounded by junk, just drag to target and let the game swap them
+                        actions.append(MergeAction(src1, target, label, tier))
+                        
+                    # Finally, drag C onto B to complete the 3-merge
+                    actions.append(MergeAction(src2, target, label, tier))
 
-        # 4. Prioritize higher tier items first
+        # 5. Prioritize higher tier items first
         actions.sort(key=lambda a: -a.tier)
         return actions
 
@@ -94,13 +118,31 @@ class MergeStrategy:
         return acts[0] if acts else None
 
     def _dist(self, a: DetectedItem, b: DetectedItem) -> float:
-        return ((a.cx - b.cx) ** 2 + (a.cy - b.cy) ** 2) ** 0.5
+        """
+        Calculates distance based on GRID ADJACENCY, not pixels.
+        Distance of 1 means they are immediate neighbors (Up/Down/Left/Right).
+        """
+        return abs(a.grid_row - b.grid_row) + abs(a.grid_col - b.grid_col)
 
     def _closest_pair(self, items):
+        """Finds the two items closest to each other on the grid."""
         best_d, best = float("inf"), (items[0], items[1])
         for i in range(len(items)):
             for j in range(i + 1, len(items)):
                 d = self._dist(items[i], items[j])
                 if d < best_d:
                     best_d, best = d, (items[i], items[j])
+                    # Optimization: If they are immediate neighbors, we can't get closer
+                    if best_d == 1:
+                        return best
         return best
+        
+    def _get_empty_neighbor(self, row, col, occupied) -> Optional[tuple[int, int]]:
+        """Scans Up, Down, Left, and Right of the target for an empty grass tile."""
+        for dr, dc in [(0, 1), (1, 0), (0, -1), (-1, 0)]:
+            r, c = row + dr, col + dc
+            # Ensure the coordinate is inside the game board bounds
+            if 0 <= r < ScreenAnalyzer.GRID_ROWS and 0 <= c < ScreenAnalyzer.GRID_COLS:
+                if (r, c) not in occupied:
+                    return (r, c)
+        return None
