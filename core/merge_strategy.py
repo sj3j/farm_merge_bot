@@ -11,7 +11,7 @@ MERGE_CHAINS: dict[str, list[str]] = {
     "chick":     ["chick", "chick2", "chick3"],
     "cow":       ["cow", "cow2", "cow3"],
     "goat":      ["goat", "goat2", "goat3"],
-    "soybean":   ["soybean", "soybean2"],
+    "soybean":   ["soybean", "soybean2","soybean3"],
     "sugarcane": ["sugarcane", "sugarcane2", "sugarcane3"],
     "weaht":     ["weaht", "weaht2", "weaht3"],
 }

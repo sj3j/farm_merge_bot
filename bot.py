@@ -28,6 +28,8 @@ from core.merge_strategy    import MergeStrategy
 
 # ── Default configuration ─────────────────────────────────────────────────────
 
+# ── Default configuration ─────────────────────────────────────────────────────
+
 CONFIG = {
     "loop_interval_sec":   2.0,
     "merge_drag_duration": 1.2,
@@ -47,6 +49,12 @@ CONFIG = {
     "box_label":           "exclamation", 
     "box_taps":            1,             
     "box_tap_delay":       0.2,           
+
+    # NEW: Collectable Items (Clicked once at the end of the cycle)
+    "collect": ["colcarrot", "colticket", "colchick", "colcow", "colgoat", "colsoybean", "colsugarcane", "colweaht", "colgroundweaht", "colgroundcarrot", "colgroundchick", "colgroundcow", "colgroundgoat", "colgroundsoybean", "colgroundsugarcane", "checkmark"],
+    
+    # NEW: Popup Buttons (Clicked ONLY after opening an exclamation box)
+    "popup_buttons": ["green_collect", "make", "close"]
 }
 
 class FarmMergeBot:
@@ -125,11 +133,16 @@ class FarmMergeBot:
             
             # If 0 merges are planned (or all are blacklisted), hit the wooden box!
             if merges_planned == 0:
-                self.strategy.clear_history() # <--- NEW LINE: Clears memory!
+                self.strategy.clear_history() 
                 self._click_generator(frame)
 
+            # --- COLLECT: Keep scanning and collecting until the board is clear ---
+            time.sleep(1) 
+            self._collect_items()
+            # ----------------------------------------------------------------------
+
     def _click_boxes(self, frame) -> int:
-        """Finds 'exclamation' templates and taps below them."""
+        """Finds 'exclamation' templates, taps below them, and handles popups."""
         items = self.analyzer.analyze(frame)
         box_label = self.cfg["box_label"]
         taps      = self.cfg["box_taps"]
@@ -140,7 +153,7 @@ class FarmMergeBot:
         if boxes:
             print(f"  [Boxes] {len(boxes)} ready to open")
             for box in boxes:
-                # Add +50 to Y so it clicks the box BELOW the exclamation mark
+                # Tap the box BELOW the exclamation mark
                 click_x = box.cx
                 click_y = box.cy + 50  
                 
@@ -149,8 +162,51 @@ class FarmMergeBot:
                     self.stats["boxes"] += 1
                     
                 print(f"    ✓ Tapped reward at ({click_x},{click_y})")
+
+                # --- POPUP LOGIC: Only happens here, not on wooden boxes ---
+                time.sleep(1.0) # Wait for the popup animation to finish
+                popup_frame = self.ctrl.screenshot()
+                popup_items = self.analyzer.analyze(popup_frame)
+                
+                for popup_label in self.cfg.get("popup_buttons", []):
+                    btns = [i for i in popup_items if i.label == popup_label]
+                    for btn in btns:
+                        self.ctrl.tap(btn.cx, btn.cy, delay=0.5)
+                        print(f"    ✓ Clicked popup button '{popup_label}'")
+                # -----------------------------------------------------------
                 
         return len(boxes)
+    
+    def _collect_items(self) -> int:
+        """Scans the board and clicks collectable items until none are left."""
+        collect_list = self.cfg.get("collect", [])
+        total_collected = 0
+        
+        while True:
+            # Take a fresh screenshot for every pass
+            frame = self.ctrl.screenshot()
+            items = self.analyzer.analyze(frame)
+            
+            # Filter for items that are in your collect list
+            targets = [item for item in items if item.label in collect_list]
+            
+            # If no collectable items are found, break the loop and move on!
+            if not targets:
+                break 
+                
+            for item in targets:
+                self.ctrl.tap(item.cx, item.cy, delay=0.25)
+                total_collected += 1
+                print(f"    ✓ Picked up '{item.label}' at ({item.cx},{item.cy})")
+            
+            # Wait a moment for the game animations to finish and items to settle
+            # before taking the next screenshot
+            time.sleep(1.0) 
+            
+        if total_collected > 0:
+            print(f"  [Collect] Done! Collected {total_collected} items this cycle.")
+            
+        return total_collected
 
     def _click_generator(self, frame):
         """Finds the generator box template and rapid-taps it to spawn items."""
