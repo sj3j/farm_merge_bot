@@ -14,16 +14,14 @@ from core.screen_analyzer import DetectedItem
 # Each list = ascending merge tiers of one family.
 # Add / edit to match the actual game items you've seen.
 
+# ── Item tier chains ───────────────────────────────────────────────────────────
+# Each list = ascending merge tiers of one family.
+# Add / edit to match the actual game items you've seen.
+
 MERGE_CHAINS: dict[str, list[str]] = {
-    "chick":  ["chick_1", "chick_2", "chick_3", "hen",    "golden_hen"],
-    "wheat":  ["wheat_1", "wheat_2", "wheat_3", "wheat_4"],
-    "carrot": ["carrot_1","carrot_2","carrot_3","carrot_4"],
-    "log":    ["log_1",   "log_2",   "log_3",   "log_4"],
-    "gem":    ["gem_1",   "gem_2",   "gem_3",   "gem_4"],
-    "coin":   ["coin_1",  "coin_2",  "coin_3",  "coin_4"],
+    "chick":  ["chick_1", "chick_2", "chick_3", "hen"],
     "cow":    ["calf",    "cow_1",   "cow_2",   "cow_3"],
-    "goat":   ["goat1",   "goat2",   "goat3",   "goat4"],
-    "flower": ["flower_1","flower_2","flower_3","flower_4"],
+    "goat":   ["goat",    "goat2",   "goat3",   "goat4"],
 }
 
 LABEL_TIER: dict[str, int] = {
@@ -52,24 +50,39 @@ class MergeStrategy:
 
     def plan(self, grid: dict[tuple, DetectedItem]) -> list[MergeAction]:
         from collections import defaultdict
+        
+        # 1. Check how many of every template exist and group them by label
         by_label: dict[str, list[DetectedItem]] = defaultdict(list)
         for item in grid.values():
             by_label[item.label].append(item)
 
         actions = []
         for label, items in by_label.items():
-            if len(items) < 2:
+            # 2. We need at least 3 items to perform a valid merge
+            if len(items) < 3:
                 continue
+                
             tier      = LABEL_TIER.get(label, 0)
             remaining = list(items)
-            while len(remaining) >= 2:
-                src, dst = self._closest_pair(remaining)
-                actions.append(MergeAction(src, dst, label, tier))
-                remaining.remove(src)
-                remaining.remove(dst)
+            
+            # 3. Pull them together in groups of 3
+            while len(remaining) >= 3:
+                # Find the closest pair (Item 1 and our Anchor Target)
+                src1, target = self._closest_pair(remaining)
+                remaining.remove(src1)
+                remaining.remove(target)
+                
+                # Find the third item closest to our Anchor Target (Item 2)
+                src2 = min(remaining, key=lambda x: self._dist(target, x))
+                remaining.remove(src2)
+                
+                # Create the consecutive sequence: Drag Item 1 -> Target, then Drag Item 2 -> Target
+                actions.append(MergeAction(src1, target, label, tier))
+                actions.append(MergeAction(src2, target, label, tier))
 
-        # Highest tier first; within same tier, closest pair first
-        actions.sort(key=lambda a: (-a.tier, self._dist(a.src, a.dst)))
+        # 4. Prioritize higher tier items first. 
+        # (We only sort by tier so that the sequence of 2 drags we planned above doesn't get shuffled)
+        actions.sort(key=lambda a: -a.tier)
         return actions
 
     def best_action(self, grid) -> Optional[MergeAction]:
