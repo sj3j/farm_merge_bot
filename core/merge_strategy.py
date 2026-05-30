@@ -1,20 +1,12 @@
-"""
-MergeStrategy
-=============
-Decides which items to merge and in what order.
-Higher-tier (rarer) items are prioritized.
-"""
+# core/merge_strategy.py
 
+import math
 from dataclasses import dataclass
 from typing import Optional
-from core.screen_analyzer import DetectedItem, ScreenAnalyzer
-
-# ── Item tier chains ───────────────────────────────────────────────────────────
-# Each list = ascending merge tiers of one family.
-# Add / edit to match the actual game items you've seen.
+from collections import defaultdict
+from core.screen_analyzer import DetectedItem
 
 MERGE_CHAINS: dict[str, list[str]] = {
-    "bcoin":     ["bcoin", "bcoin2"],
     "carrot":    ["carrot", "carrot2", "carrot3"],
     "chick":     ["chick", "chick2", "chick3"],
     "cow":       ["cow", "cow2", "cow3"],
@@ -30,7 +22,6 @@ LABEL_TIER: dict[str, int] = {
     for idx, label in enumerate(chain)
 }
 
-
 @dataclass
 class MergeAction:
     src:   DetectedItem
@@ -40,109 +31,113 @@ class MergeAction:
 
     def __str__(self):
         return (f"MERGE  {self.label} (tier {self.tier})  "
-                f"grid({self.src.grid_row},{self.src.grid_col}) → "
-                f"grid({self.dst.grid_row},{self.dst.grid_col})  "
                 f"px({self.src.cx},{self.src.cy}) → "
                 f"px({self.dst.cx},{self.dst.cy})")
 
-
 class MergeStrategy:
 
+    def __init__(self):
+        self.history = defaultdict(int)
+
+    def clear_history(self):
+        self.history.clear()
+
     def plan(self, grid: dict[int, DetectedItem]) -> list[MergeAction]:
-        from collections import defaultdict
-        
+        # 0. Deduplicate overlapping items
+        unique_items = []
+        for item in grid.values():
+            if not any(self._dist(item, u) < 30 for u in unique_items):
+                unique_items.append(item)
+
         # 1. Group items by label
         by_label: dict[str, list[DetectedItem]] = defaultdict(list)
-        for item in grid.values():
+        for item in unique_items:
             by_label[item.label].append(item)
 
-        actions = []
-        
-        # 2. Map all occupied cells to prevent dragging items on top of each other
-        occupied = set((item.grid_row, item.grid_col) for item in grid.values())
+        # 2. Sort labels by highest tier first so it prioritizes rare items
+        labels_by_tier = sorted(by_label.keys(), key=lambda L: LABEL_TIER.get(L, 0), reverse=True)
+        all_items_list = list(unique_items)
 
-        for label, items in by_label.items():
-            # 3. Require at least 3 items to merge
+        # 3. Process exactly ONE group at a time
+        for label in labels_by_tier:
+            items = by_label[label]
             if len(items) < 3:
                 continue
                 
             tier      = LABEL_TIER.get(label, 0)
             remaining = list(items)
             
-            # 4. Pull them together in groups of 3
             while len(remaining) >= 3:
-                # Find the closest pair (Item A and our Anchor Item B)
                 src1, target = self._closest_pair(remaining)
                 remaining.remove(src1)
                 remaining.remove(target)
                 
-                # Find the third item closest to Item B (Item C)
                 src2 = min(remaining, key=lambda x: self._dist(target, x))
                 remaining.remove(src2)
                 
-                # Check if A and B are already beside each other
-                if self._dist(src1, target) == 1:
-                    # They are adjacent! We only need 1 drag: Move C onto B.
-                    actions.append(MergeAction(src2, target, label, tier))
-                else:
-                    # They are NOT adjacent. Find an empty spot next to B.
-                    empty_spot = self._get_empty_neighbor(target.grid_row, target.grid_col, occupied)
-                    
-                    if empty_spot:
-                        er, ec = empty_spot
-                        
-                        # Translate the empty grid cell back into physical mouse pixels
-                        px = ScreenAnalyzer.GRID_ORIGIN_X + (ec * ScreenAnalyzer.CELL_W) + (ScreenAnalyzer.CELL_W // 2)
-                        py = ScreenAnalyzer.GRID_ORIGIN_Y + (er * ScreenAnalyzer.CELL_H) + (ScreenAnalyzer.CELL_H // 2)
-                        
-                        virtual_dst = DetectedItem(label="empty_slot", cx=px, cy=py, grid_row=er, grid_col=ec, conf=1.0)
-                        
-                        # Drag A to the empty slot beside B
-                        actions.append(MergeAction(src1, virtual_dst, label, tier))
-                        
-                        # Mark that empty slot as occupied so we don't double-stack it this cycle
-                        occupied.add((er, ec))
-                    else:
-                        # Fallback: If B is totally surrounded by junk, just drag to target and let the game swap them
-                        actions.append(MergeAction(src1, target, label, tier))
-                        
-                    # Finally, drag C onto B to complete the 3-merge
-                    actions.append(MergeAction(src2, target, label, tier))
+                # Memory key based on target location
+                loc_key = (label, round(target.cx / 40) * 40, round(target.cy / 40) * 40)
+                attempts = self.history[loc_key]
+                
+                # If this specific merge has failed twice, skip it and look for other items!
+                if attempts >= 2:
+                    continue 
 
-        # 5. Prioritize higher tier items first
-        actions.sort(key=lambda a: -a.tier)
-        return actions
+                # Record that we are making an attempt
+                self.history[loc_key] += 1
+
+                # --- ATTEMPT 1: Direct Drag (A -> B, C -> B) ---
+                if attempts == 0:
+                    return [
+                        MergeAction(src1, target, label, tier),
+                        MergeAction(src2, target, label, tier)
+                    ]
+                    
+                # --- ATTEMPT 2: Stuck Loop Detected! (A -> Grass, C -> B) ---
+                elif attempts == 1:
+                    spot1 = self._get_empty_pixel_neighbor(target, all_items_list)
+                    if spot1:
+                        # Move A to empty grass spot, then move C onto B!
+                        return [
+                            MergeAction(src1, spot1, label, tier),
+                            MergeAction(src2, target, label, tier) 
+                        ]
+                    else:
+                        # Fallback if the board is 100% full
+                        return [
+                            MergeAction(src1, target, label, tier),
+                            MergeAction(src2, target, label, tier)
+                        ]
+
+        # If all items are processed or blacklisted, return empty (this triggers the wooden box)
+        return []
 
     def best_action(self, grid) -> Optional[MergeAction]:
         acts = self.plan(grid)
         return acts[0] if acts else None
 
     def _dist(self, a: DetectedItem, b: DetectedItem) -> float:
-        """
-        Calculates distance based on GRID ADJACENCY, not pixels.
-        Distance of 1 means they are immediate neighbors (Up/Down/Left/Right).
-        """
-        return abs(a.grid_row - b.grid_row) + abs(a.grid_col - b.grid_col)
+        return math.sqrt((a.cx - b.cx)**2 + (a.cy - b.cy)**2)
 
     def _closest_pair(self, items):
-        """Finds the two items closest to each other on the grid."""
         best_d, best = float("inf"), (items[0], items[1])
         for i in range(len(items)):
             for j in range(i + 1, len(items)):
                 d = self._dist(items[i], items[j])
                 if d < best_d:
                     best_d, best = d, (items[i], items[j])
-                    # Optimization: If they are immediate neighbors, we can't get closer
-                    if best_d == 1:
-                        return best
         return best
         
-    def _get_empty_neighbor(self, row, col, occupied) -> Optional[tuple[int, int]]:
-        """Scans Up, Down, Left, and Right of the target for an empty grass tile."""
-        for dr, dc in [(0, 1), (1, 0), (0, -1), (-1, 0)]:
-            r, c = row + dr, col + dc
-            # Ensure the coordinate is inside the game board bounds
-            if 0 <= r < ScreenAnalyzer.GRID_ROWS and 0 <= c < ScreenAnalyzer.GRID_COLS:
-                if (r, c) not in occupied:
-                    return (r, c)
+    def _get_empty_pixel_neighbor(self, target: DetectedItem, all_items: list[DetectedItem]) -> Optional[DetectedItem]:
+        offsets = [(95, 0), (-95, 0), (0, 80), (0, -80), (47, 40), (-47, -40), (47, -40), (-47, 40)]
+        for dx, dy in offsets:
+            nx, ny = target.cx + dx, target.cy + dy
+            is_empty = True
+            for item in all_items:
+                dist = math.sqrt((item.cx - nx)**2 + (item.cy - ny)**2)
+                if dist < 45:
+                    is_empty = False
+                    break
+            if is_empty:
+                return DetectedItem(label="empty_slot", cx=int(nx), cy=int(ny), grid_row=0, grid_col=0, confidence=1.0)
         return None

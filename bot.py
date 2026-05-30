@@ -15,6 +15,7 @@ if sys.platform == "win32":
             ctypes.windll.user32.SetProcessDPIAware() # Fallback
         except Exception:
             pass
+
 import argparse
 import time
 import os
@@ -24,28 +25,28 @@ from datetime import datetime
 from core.window_controller import WindowController
 from core.screen_analyzer   import ScreenAnalyzer
 from core.merge_strategy    import MergeStrategy
-from core.box_clicker       import BoxClicker
-
-# ── Default configuration ─────────────────────────────────────────────────────
-
-# ── Default configuration ─────────────────────────────────────────────────────
 
 # ── Default configuration ─────────────────────────────────────────────────────
 
 CONFIG = {
     "loop_interval_sec":   2.0,
-    "merge_drag_duration": 1.2,   
+    "merge_drag_duration": 1.2,
     "merge_delay_sec":     0.5,
-    "box_click_delay_sec": 0.5,   
+    "box_click_delay_sec": 0.5,
     "max_merges_per_cycle":6,
-    "match_threshold":     0.84,  
+    "match_threshold":     0.84,
     "save_debug_frames":   False,
     "templates_dir":       "templates",
     
-    # NEW: Generator Box Settings
-    "generator_label":     "wooden_box", # Must match the template name you saved
-    "generator_taps":      10,           # How many times to click it
-    "generator_tap_delay": 0.15,         # Fast tapping speed
+    # Generator Box Settings
+    "generator_label":     "wooden_box", 
+    "generator_taps":      10,           
+    "generator_tap_delay": 0.15, 
+    
+    # Exclamation Box Settings
+    "box_label":           "exclamation", 
+    "box_taps":            1,             
+    "box_tap_delay":       0.2,           
 }
 
 class FarmMergeBot:
@@ -57,7 +58,6 @@ class FarmMergeBot:
             match_threshold= self.cfg["match_threshold"],
         )
         self.strategy = MergeStrategy()
-        self.clicker  = BoxClicker(self.ctrl, self.analyzer)
 
         self.stats = {"cycles": 0, "merges": 0, "boxes": 0, "errors": 0}
         os.makedirs("logs",        exist_ok=True)
@@ -105,9 +105,9 @@ class FarmMergeBot:
         for g in groups:
             coords = [(i.grid_row, i.grid_col) for i in g]
             print(f"  {g[0].label:15s}  ×{len(g)}  at grid cells {coords}")
-
-        boxes  = self.clicker.find_ready_boxes(frame)
-        print(f"[Debug] {len(boxes)} ready box(es) detected: {boxes}")
+            
+        exclamations = [i for i in items if i.label == self.cfg["box_label"]]
+        print(f"[Debug] {len(exclamations)} reward box(es) detected.")
 
     def _cycle(self, frame, mode: str):
         if mode == "debug":
@@ -121,24 +121,47 @@ class FarmMergeBot:
                 frame = self.ctrl.screenshot()
 
         if mode in ("auto", "merge"):
-            # 1. Ask the strategy how many merges are available
             merges_planned = self._do_merges(frame)
             
-            # 2. If stuck (0 merges), hit the wooden box!
+            # If 0 merges are planned (or all are blacklisted), hit the wooden box!
             if merges_planned == 0:
+                self.strategy.clear_history() # <--- NEW LINE: Clears memory!
                 self._click_generator(frame)
 
+    def _click_boxes(self, frame) -> int:
+        """Finds 'exclamation' templates and taps below them."""
+        items = self.analyzer.analyze(frame)
+        box_label = self.cfg["box_label"]
+        taps      = self.cfg["box_taps"]
+        delay     = self.cfg["box_tap_delay"]
+        
+        boxes = [item for item in items if item.label == box_label]
+        
+        if boxes:
+            print(f"  [Boxes] {len(boxes)} ready to open")
+            for box in boxes:
+                # Add +50 to Y so it clicks the box BELOW the exclamation mark
+                click_x = box.cx
+                click_y = box.cy + 50  
+                
+                for _ in range(taps):
+                    self.ctrl.tap(click_x, click_y, delay=delay)
+                    self.stats["boxes"] += 1
+                    
+                print(f"    ✓ Tapped reward at ({click_x},{click_y})")
+                
+        return len(boxes)
+
     def _click_generator(self, frame):
-        """Finds the wooden box template and rapid-taps it."""
+        """Finds the generator box template and rapid-taps it to spawn items."""
         items = self.analyzer.analyze(frame)
         gen_label = self.cfg["generator_label"]
         taps      = self.cfg["generator_taps"]
         
-        # Find all templates matching 'wooden_box'
         boxes = [item for item in items if item.label == gen_label]
         
         if boxes:
-            box = boxes[0] # Pick the first one found
+            box = boxes[0] # Target the first generator found
             print(f"  [Generator] No merges left! Tapping '{gen_label}' {taps} times at ({box.cx},{box.cy})...")
             
             for _ in range(taps):
@@ -170,16 +193,7 @@ class FarmMergeBot:
             path = f"logs/frame_{datetime.now().strftime('%H%M%S%f')}.png"
             cv2.imwrite(path, cv2.cvtColor(ann, cv2.COLOR_RGB2BGR))
             
-        return len(actions) # IMPORTANT: Returns the count so _cycle knows if we are stuck
-
-    def _click_boxes(self, frame) -> int:
-        boxes = self.clicker.find_ready_boxes(frame)
-        print(f"  [Boxes] {len(boxes)} ready")
-        for cx, cy in boxes:
-            self.ctrl.tap(cx, cy, delay=self.cfg["box_click_delay_sec"])
-            self.stats["boxes"] += 1
-            print(f"    ✓ ({cx},{cy})")
-        return len(boxes)
+        return len(actions)
 
     def _do_debug(self, frame):
         items = self.analyzer.analyze(frame)
@@ -202,7 +216,6 @@ def main():
     p.add_argument("--debug-once", action="store_true", help="Detect items once, save annotated image, exit")
     args = p.parse_args()
 
-    # Wait for the user to tab into Discord *after* printing
     print("\n[Bot] Starting in 5 seconds... Please switch to the Discord window now!")
     time.sleep(5)
 
