@@ -19,9 +19,14 @@ from core.screen_analyzer import DetectedItem
 # Add / edit to match the actual game items you've seen.
 
 MERGE_CHAINS: dict[str, list[str]] = {
-    "chick":  ["chick", "chick2", "chick3", "hen"],
-    "cow":    ["calf",    "cow_1",   "cow_2",   "cow_3"],
-    "goat":   ["goat",    "goat2",   "goat3",   "goat1"],
+    "bcoin":     ["bcoin", "bcoin2"],
+    "carrot":    ["carrot", "carrot2", "carrot3"],
+    "chick":     ["chick", "chick2", "chick3"],
+    "cow":       ["cow", "cow2", "cow3"],
+    "goat":      ["goat", "goat2", "goat3"],
+    "soybean":   ["soybean", "soybean2"],
+    "sugarcane": ["sugarcane", "sugarcane2", "sugarcane3"],
+    "weaht":     ["weaht", "weaht2", "weaht3"],
 }
 
 LABEL_TIER: dict[str, int] = {

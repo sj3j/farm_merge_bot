@@ -30,15 +30,22 @@ from core.box_clicker       import BoxClicker
 
 # ── Default configuration ─────────────────────────────────────────────────────
 
+# ── Default configuration ─────────────────────────────────────────────────────
+
 CONFIG = {
     "loop_interval_sec":   2.0,
-    "merge_drag_duration": 1.2,   # INCREASED: Forces a slower drag so the game registers it
+    "merge_drag_duration": 1.2,   
     "merge_delay_sec":     0.5,
-    "box_click_delay_sec": 0.5,   # INCREASED: Slight pause when clicking boxes
+    "box_click_delay_sec": 0.5,   
     "max_merges_per_cycle":6,
-    "match_threshold":     0.84,  # INCREASED: Filters out false positives (must be 88% match)
+    "match_threshold":     0.84,  
     "save_debug_frames":   False,
     "templates_dir":       "templates",
+    
+    # NEW: Generator Box Settings
+    "generator_label":     "wooden_box", # Must match the template name you saved
+    "generator_taps":      10,           # How many times to click it
+    "generator_tap_delay": 0.15,         # Fast tapping speed
 }
 
 class FarmMergeBot:
@@ -114,18 +121,33 @@ class FarmMergeBot:
                 frame = self.ctrl.screenshot()
 
         if mode in ("auto", "merge"):
-            self._do_merges(frame)
+            # 1. Ask the strategy how many merges are available
+            merges_planned = self._do_merges(frame)
+            
+            # 2. If stuck (0 merges), hit the wooden box!
+            if merges_planned == 0:
+                self._click_generator(frame)
 
-    def _click_boxes(self, frame) -> int:
-        boxes = self.clicker.find_ready_boxes(frame)
-        print(f"  [Boxes] {len(boxes)} ready")
-        for cx, cy in boxes:
-            self.ctrl.tap(cx, cy, delay=self.cfg["box_click_delay_sec"])
-            self.stats["boxes"] += 1
-            print(f"    ✓ ({cx},{cy})")
-        return len(boxes)
+    def _click_generator(self, frame):
+        """Finds the wooden box template and rapid-taps it."""
+        items = self.analyzer.analyze(frame)
+        gen_label = self.cfg["generator_label"]
+        taps      = self.cfg["generator_taps"]
+        
+        # Find all templates matching 'wooden_box'
+        boxes = [item for item in items if item.label == gen_label]
+        
+        if boxes:
+            box = boxes[0] # Pick the first one found
+            print(f"  [Generator] No merges left! Tapping '{gen_label}' {taps} times at ({box.cx},{box.cy})...")
+            
+            for _ in range(taps):
+                self.ctrl.tap(box.cx, box.cy, delay=self.cfg["generator_tap_delay"])
+                self.stats["boxes"] += 1
+                
+            print("  [Generator] Done tapping. Waiting for items to spawn.")
 
-    def _do_merges(self, frame):
+    def _do_merges(self, frame) -> int:
         items   = self.analyzer.analyze(frame)
         grid    = self.analyzer.build_grid(items)
         actions = self.strategy.plan(grid)
@@ -147,6 +169,17 @@ class FarmMergeBot:
             ann  = self.analyzer.debug_annotate(frame, items)
             path = f"logs/frame_{datetime.now().strftime('%H%M%S%f')}.png"
             cv2.imwrite(path, cv2.cvtColor(ann, cv2.COLOR_RGB2BGR))
+            
+        return len(actions) # IMPORTANT: Returns the count so _cycle knows if we are stuck
+
+    def _click_boxes(self, frame) -> int:
+        boxes = self.clicker.find_ready_boxes(frame)
+        print(f"  [Boxes] {len(boxes)} ready")
+        for cx, cy in boxes:
+            self.ctrl.tap(cx, cy, delay=self.cfg["box_click_delay_sec"])
+            self.stats["boxes"] += 1
+            print(f"    ✓ ({cx},{cy})")
+        return len(boxes)
 
     def _do_debug(self, frame):
         items = self.analyzer.analyze(frame)
