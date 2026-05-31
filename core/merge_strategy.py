@@ -7,16 +7,13 @@ from collections import defaultdict
 from core.screen_analyzer import DetectedItem
 
 MERGE_CHAINS: dict[str, list[str]] = {
-    "weaht":     ["weaht", "weaht2", "weaht3"],
     "carrot":    ["carrot", "carrot2", "carrot3"],
-    "soybean":   ["soybean", "soybean2","soybean3"],
-    "sugarcane": ["sugarcane", "sugarcane2", "sugarcane3"],
-
     "chick":     ["chick", "chick2", "chick3"],
     "cow":       ["cow", "cow2", "cow3"],
     "goat":      ["goat", "goat2", "goat3"],
-    
-
+    "soybean":   ["soybean", "soybean2"],
+    "sugarcane": ["sugarcane", "sugarcane2", "sugarcane3"],
+    "weaht":     ["weaht", "weaht2", "weaht3"],
 }
 
 LABEL_TIER: dict[str, int] = {
@@ -57,12 +54,23 @@ class MergeStrategy:
         for item in unique_items:
             by_label[item.label].append(item)
 
-        # 2. Sort labels by highest tier first so it prioritizes rare items
-        labels_by_tier = sorted(by_label.keys(), key=lambda L: LABEL_TIER.get(L, 0), reverse=True)
+        # 2. Priority Sorting Engine: 
+        #    Sorts primarily by lowest fail attempts (fresh items first) 
+        #    and secondarily by highest tier.
+        def get_group_priority(L):
+            tier = LABEL_TIER.get(L, 0)
+            max_attempts = 0
+            for item in by_label[L]:
+                loc_key = (L, round(item.cx / 40) * 40, round(item.cy / 40) * 40)
+                max_attempts = max(max_attempts, self.history[loc_key])
+            return (max_attempts, -tier)
+
+        labels_by_priority = sorted(by_label.keys(), key=get_group_priority)
         all_items_list = list(unique_items)
 
-        # 3. Process exactly ONE group at a time
-        for label in labels_by_tier:
+        # 3. Process exactly ONE group at a time 
+        # (bot.py will loop and call this multiple times to clear the board)
+        for label in labels_by_priority:
             items = by_label[label]
             if len(items) < 3:
                 continue
@@ -81,23 +89,19 @@ class MergeStrategy:
                 # Memory key based on target location
                 loc_key = (label, round(target.cx / 40) * 40, round(target.cy / 40) * 40)
                 attempts = self.history[loc_key]
-                
-                # If this specific merge has failed twice, skip it and look for other items!
-                if attempts >= 2:
-                    continue 
 
                 # Record that we are making an attempt
                 self.history[loc_key] += 1
 
-                # --- ATTEMPT 1: Direct Drag (A -> B, C -> B) ---
+                # --- ATTEMPT 0: Direct Drag (A -> B, C -> B) ---
                 if attempts == 0:
                     return [
                         MergeAction(src1, target, label, tier),
                         MergeAction(src2, target, label, tier)
                     ]
                     
-                # --- ATTEMPT 2: Stuck Loop Detected! Swap and merge elsewhere ---
-                elif attempts == 1:
+                # --- ATTEMPT 1+: Stuck Loop Detected! Swap and merge elsewhere PERMANENTLY ---
+                else: 
                     diff_item = self._get_closest_different_item(target, label, all_items_list)
                     if diff_item:
                         # 1. Swap src1 (A) with diff_item (X)
@@ -109,7 +113,7 @@ class MergeStrategy:
                             MergeAction(target, diff_item, label, tier)
                         ]
                     else:
-                        # Fallback if no different items exist on the board
+                        # Fallback if no different items exist on the board (Empty board scenario)
                         spot1 = self._get_empty_pixel_neighbor(target, all_items_list)
                         if spot1:
                             return [
@@ -122,7 +126,7 @@ class MergeStrategy:
                                 MergeAction(src2, target, label, tier)
                             ]
 
-        # If all items are processed or blacklisted, return empty (this triggers the wooden box)
+        # If all items are processed, return empty (this breaks the loop and triggers collection)
         return []
 
     def best_action(self, grid) -> Optional[MergeAction]:

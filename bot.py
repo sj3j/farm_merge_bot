@@ -29,11 +29,11 @@ from core.merge_strategy    import MergeStrategy
 # ── Default configuration ─────────────────────────────────────────────────────
 
 CONFIG = {
-    "loop_interval_sec":   2.0,
-    "merge_drag_duration": 1.2,
-    "merge_delay_sec":     0.5,
-    "box_click_delay_sec": 0.5,
-    "max_merges_per_cycle":6,
+    "loop_interval_sec":   1.0,   
+    "merge_drag_duration": 0.4,   
+    "merge_delay_sec":     0.15,  
+    "box_click_delay_sec": 0.3,   
+    "max_merges_per_cycle": 15,    # Increased to allow clearing the whole board in one cycle
     "match_threshold":     0.84,
     "save_debug_frames":   False,
     "templates_dir":       "templates",
@@ -48,7 +48,7 @@ CONFIG = {
     "box_taps":            1,             
     "box_tap_delay":       0.2,           
 
-    # NEW: Collectable Items (Clicked once at the end of the cycle)
+    # Collectable Items (Clicked once at the end of the cycle)
     "collect": ["colweaht", "colgroundweaht", "coldeadweaht",
                 "colcarrot","colgroundcarrot", "coldeadcarrot",
                 "colsoybean", "colgroundsoybean", "coldeadsoybean",
@@ -57,9 +57,9 @@ CONFIG = {
                 "colcow", "colgroundcow",
                 "colgoat", "colgroundgoat",
                 "colcoin",  
-                "colticket","checkmark"],
+                "colticket","checkmark", "colcrystal"],
     
-    # NEW: Popup Buttons (Clicked ONLY after opening an exclamation box)
+    # Popup Buttons (Clicked ONLY after opening an exclamation box)
     "popup_buttons": ["green_collect", "make", "close"]
 }
 
@@ -131,21 +131,21 @@ class FarmMergeBot:
         if mode in ("auto", "boxes"):
             n = self._click_boxes(frame)
             if n:
-                time.sleep(1.2)
+                time.sleep(1.0)
                 frame = self.ctrl.screenshot()
 
         if mode in ("auto", "merge"):
-            merges_planned = self._do_merges(frame)
+            total_merges_done = self._do_merges(frame)
             
-            # If 0 merges are planned (or all are blacklisted), hit the wooden box!
-            if merges_planned == 0:
+            # If 0 merges were done across the whole loop, hit the wooden box!
+            if total_merges_done == 0:
                 self.strategy.clear_history() 
                 self._click_generator(frame)
 
-            # --- COLLECT: One pass per cycle ---
-            time.sleep(1) 
+            # --- COLLECT: One pass per cycle after ALL merges are done ---
+            time.sleep(0.5) 
             self._collect_items()
-            # -----------------------------------
+            # -------------------------------------------------------------
 
     def _click_boxes(self, frame) -> int:
         """Finds 'exclamation' templates, taps below them, and handles popups."""
@@ -159,7 +159,6 @@ class FarmMergeBot:
         if boxes:
             print(f"  [Boxes] {len(boxes)} ready to open")
             for box in boxes:
-                # Tap the box BELOW the exclamation mark
                 click_x = box.cx
                 click_y = box.cy + 50  
                 
@@ -169,8 +168,7 @@ class FarmMergeBot:
                     
                 print(f"    ✓ Tapped reward at ({click_x},{click_y})")
 
-                # --- POPUP LOGIC: Only happens here, not on wooden boxes ---
-                time.sleep(1.0) # Wait for the popup animation to finish
+                time.sleep(1.0) 
                 popup_frame = self.ctrl.screenshot()
                 popup_items = self.analyzer.analyze(popup_frame)
                 
@@ -179,7 +177,6 @@ class FarmMergeBot:
                     for btn in btns:
                         self.ctrl.tap(btn.cx, btn.cy, delay=0.5)
                         print(f"    ✓ Clicked popup button '{popup_label}'")
-                # -----------------------------------------------------------
                 
         return len(boxes)
     
@@ -188,21 +185,17 @@ class FarmMergeBot:
         collect_list = self.cfg.get("collect", [])
         total_collected = 0
         
-        # Take a single screenshot for this pass
         frame = self.ctrl.screenshot()
         items = self.analyzer.analyze(frame)
-        
-        # Filter for items that are in your collect list
         targets = [item for item in items if item.label in collect_list]
         
         if targets:
             for item in targets:
-                self.ctrl.tap(item.cx, item.cy, delay=0.25)
+                self.ctrl.tap(item.cx, item.cy, delay=0.2)
                 total_collected += 1
                 print(f"    ✓ Picked up '{item.label}' at ({item.cx},{item.cy})")
             
-            # Wait a moment for the game animations to finish
-            time.sleep(1.0) 
+            time.sleep(0.5) 
             print(f"  [Collect] Done! Collected {total_collected} items this pass.")
             
         return total_collected
@@ -216,7 +209,7 @@ class FarmMergeBot:
         boxes = [item for item in items if item.label == gen_label]
         
         if boxes:
-            box = boxes[0] # Target the first generator found
+            box = boxes[0] 
             print(f"  [Generator] No merges left! Tapping '{gen_label}' {taps} times at ({box.cx},{box.cy})...")
             
             for _ in range(taps):
@@ -226,29 +219,42 @@ class FarmMergeBot:
             print("  [Generator] Done tapping. Waiting for items to spawn.")
 
     def _do_merges(self, frame) -> int:
-        items   = self.analyzer.analyze(frame)
-        grid    = self.analyzer.build_grid(items)
-        actions = self.strategy.plan(grid)
-        limit   = self.cfg["max_merges_per_cycle"]
+        """Continuously merges items until the board is clear of 3-merges."""
+        limit = self.cfg["max_merges_per_cycle"]
+        total_actions = 0
 
-        print(f"  [Merge] {len(items)} items  |  {len(actions)} actions planned")
-
-        for i, act in enumerate(actions[:limit]):
-            print(f"    [{i+1}] {act}")
-            self.ctrl.drag_item(
-                act.src.cx, act.src.cy,
-                act.dst.cx, act.dst.cy,
-                duration = self.cfg["merge_drag_duration"],
-                delay    = self.cfg["merge_delay_sec"],
-            )
-            self.stats["merges"] += 1
-
-        if self.cfg["save_debug_frames"] and items:
-            ann  = self.analyzer.debug_annotate(frame, items)
-            path = f"logs/frame_{datetime.now().strftime('%H%M%S%f')}.png"
-            cv2.imwrite(path, cv2.cvtColor(ann, cv2.COLOR_RGB2BGR))
+        for merge_pass in range(limit):
+            items = self.analyzer.analyze(frame)
+            grid  = self.analyzer.build_grid(items)
+            actions = self.strategy.plan(grid)
             
-        return len(actions)
+            # If no actions are returned, the board has no more valid 3-merges!
+            if not actions:
+                break 
+
+            print(f"  [Merge Pass {merge_pass+1}/{limit}] Executing {len(actions)} actions...")
+
+            for i, act in enumerate(actions):
+                print(f"    [{i+1}] {act}")
+                self.ctrl.drag_item(
+                    act.src.cx, act.src.cy,
+                    act.dst.cx, act.dst.cy,
+                    duration = self.cfg["merge_drag_duration"],
+                    delay    = self.cfg["merge_delay_sec"],
+                )
+                self.stats["merges"] += 1
+                total_actions += 1
+
+            if self.cfg["save_debug_frames"] and items:
+                ann  = self.analyzer.debug_annotate(frame, items)
+                path = f"logs/frame_{datetime.now().strftime('%H%M%S%f')}.png"
+                cv2.imwrite(path, cv2.cvtColor(ann, cv2.COLOR_RGB2BGR))
+                
+            # Wait briefly for items to snap together before grabbing the next frame
+            time.sleep(0.5)
+            frame = self.ctrl.screenshot()
+            
+        return total_actions
 
     def _do_debug(self, frame):
         items = self.analyzer.analyze(frame)
@@ -266,7 +272,7 @@ class FarmMergeBot:
 def main():
     p = argparse.ArgumentParser(description="Farm Merge Valley Bot (Discord)")
     p.add_argument("--mode",     choices=["auto","merge","boxes","debug"], default="auto")
-    p.add_argument("--interval", type=float, default=2.0, help="Seconds between cycles")
+    p.add_argument("--interval", type=float, default=1.0, help="Seconds between cycles")
     p.add_argument("--cycles",   type=int,   default=0, help="Max cycles (0 = unlimited)")
     p.add_argument("--debug-once", action="store_true", help="Detect items once, save annotated image, exit")
     args = p.parse_args()
