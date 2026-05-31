@@ -40,14 +40,10 @@ class MergeStrategy:
 
     def __init__(self):
         self.history = defaultdict(int)
-        self.phase1_fails = 0     # Tracks how many times direct merges have failed
-        self.lock_phase2 = False  # The global lock switch
 
     def clear_history(self):
-        """Resets the history and locks when the board is clear or boxes are clicked."""
+        """Resets the history when the board is clear or boxes are clicked."""
         self.history.clear()
-        self.phase1_fails = 0
-        self.lock_phase2 = False
 
     def plan(self, grid: dict[int, DetectedItem]) -> list[MergeAction]:
         # 0. Deduplicate overlapping items
@@ -61,9 +57,7 @@ class MergeStrategy:
         for item in unique_items:
             by_label[item.label].append(item)
 
-        # 2. Priority Sorting Engine: 
-        #    Sorts primarily by lowest fail attempts (fresh items first) 
-        #    and secondarily by highest tier.
+        # 2. Priority Sorting Engine 
         def get_group_priority(L):
             tier = LABEL_TIER.get(L, 0)
             max_attempts = 0
@@ -94,53 +88,32 @@ class MergeStrategy:
                 
                 # Memory key based on target location
                 loc_key = (label, round(target.cx / 40) * 40, round(target.cy / 40) * 40)
-                attempts = self.history[loc_key]
-
-                # --- NEW LOGIC: Board Congestion Detection ---
-                # If we detect a failure (attempts == 1) and we aren't locked yet, count it.
-                if attempts == 1 and not self.lock_phase2:
-                    self.phase1_fails += 1
-                    if self.phase1_fails >= 1:
-                        print("\n  [Strategy] ⚠️ Board is crowded! 1 failure detected.")
-                        print("  [Strategy] 🔒 Locking into Swap Method (Phase 2).")
-                        self.lock_phase2 = True
-
-                # Record that we are making an attempt
                 self.history[loc_key] += 1
 
-                # --- ATTEMPT 0: Direct Drag (A -> B, C -> B) ---
-                # Will only execute if Phase 2 is NOT locked and it's a fresh item.
-                if not self.lock_phase2 and attempts == 0:
+                # --- PERMANENT PHASE 2: Swap and merge elsewhere ---
+                diff_item = self._get_closest_different_item(target, label, all_items_list)
+                if diff_item:
+                    # 1. Swap src1 (A) with diff_item (X)
+                    # 2. Move src2 (C) to the new location (X)
+                    # 3. Move target (B) to the new location (X) to complete the 3-merge
                     return [
-                        MergeAction(src1, target, label, tier),
-                        MergeAction(src2, target, label, tier)
+                        MergeAction(src1, diff_item, label, tier),
+                        MergeAction(src2, diff_item, label, tier),
+                        MergeAction(target, diff_item, label, tier)
                     ]
-                    
-                # --- ATTEMPT 1+ (Or Locked): Swap and merge elsewhere PERMANENTLY ---
-                else: 
-                    diff_item = self._get_closest_different_item(target, label, all_items_list)
-                    if diff_item:
-                        # 1. Swap src1 (A) with diff_item (X)
-                        # 2. Move src2 (C) to the new location (X)
-                        # 3. Move target (B) to the new location (X) to complete the 3-merge
+                else:
+                    # Fallback if no different items exist on the board (Empty board scenario)
+                    spot1 = self._get_empty_pixel_neighbor(target, all_items_list)
+                    if spot1:
                         return [
-                            MergeAction(src1, diff_item, label, tier),
-                            MergeAction(src2, diff_item, label, tier),
-                            MergeAction(target, diff_item, label, tier)
+                            MergeAction(src1, spot1, label, tier),
+                            MergeAction(src2, target, label, tier) 
                         ]
                     else:
-                        # Fallback if no different items exist on the board (Empty board scenario)
-                        spot1 = self._get_empty_pixel_neighbor(target, all_items_list)
-                        if spot1:
-                            return [
-                                MergeAction(src1, spot1, label, tier),
-                                MergeAction(src2, target, label, tier) 
-                            ]
-                        else:
-                            return [
-                                MergeAction(src1, target, label, tier),
-                                MergeAction(src2, target, label, tier)
-                            ]
+                        return [
+                            MergeAction(src1, target, label, tier),
+                            MergeAction(src2, target, label, tier)
+                        ]
 
         # If all items are processed, return empty (this breaks the loop and triggers collection)
         return []
