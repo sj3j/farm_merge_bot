@@ -28,8 +28,6 @@ from core.merge_strategy    import MergeStrategy
 
 # ── Default configuration ─────────────────────────────────────────────────────
 
-# ── Default configuration ─────────────────────────────────────────────────────
-
 CONFIG = {
     "loop_interval_sec":   2.0,
     "merge_drag_duration": 1.2,
@@ -144,10 +142,10 @@ class FarmMergeBot:
                 self.strategy.clear_history() 
                 self._click_generator(frame)
 
-            # --- COLLECT: Keep scanning and collecting until the board is clear ---
+            # --- COLLECT: One pass per cycle ---
             time.sleep(1) 
             self._collect_items()
-            # ----------------------------------------------------------------------
+            # -----------------------------------
 
     def _click_boxes(self, frame) -> int:
         """Finds 'exclamation' templates, taps below them, and handles popups."""
@@ -186,33 +184,26 @@ class FarmMergeBot:
         return len(boxes)
     
     def _collect_items(self) -> int:
-        """Scans the board and clicks collectable items until none are left."""
+        """Scans the board and clicks collectable items once per cycle."""
         collect_list = self.cfg.get("collect", [])
         total_collected = 0
         
-        while True:
-            # Take a fresh screenshot for every pass
-            frame = self.ctrl.screenshot()
-            items = self.analyzer.analyze(frame)
-            
-            # Filter for items that are in your collect list
-            targets = [item for item in items if item.label in collect_list]
-            
-            # If no collectable items are found, break the loop and move on!
-            if not targets:
-                break 
-                
+        # Take a single screenshot for this pass
+        frame = self.ctrl.screenshot()
+        items = self.analyzer.analyze(frame)
+        
+        # Filter for items that are in your collect list
+        targets = [item for item in items if item.label in collect_list]
+        
+        if targets:
             for item in targets:
                 self.ctrl.tap(item.cx, item.cy, delay=0.25)
                 total_collected += 1
                 print(f"    ✓ Picked up '{item.label}' at ({item.cx},{item.cy})")
             
-            # Wait a moment for the game animations to finish and items to settle
-            # before taking the next screenshot
+            # Wait a moment for the game animations to finish
             time.sleep(1.0) 
-            
-        if total_collected > 0:
-            print(f"  [Collect] Done! Collected {total_collected} items this cycle.")
+            print(f"  [Collect] Done! Collected {total_collected} items this pass.")
             
         return total_collected
 
