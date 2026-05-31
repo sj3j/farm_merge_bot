@@ -11,7 +11,7 @@ MERGE_CHAINS: dict[str, list[str]] = {
     "chick":     ["chick", "chick2", "chick3"],
     "cow":       ["cow", "cow2", "cow3"],
     "goat":      ["goat", "goat2", "goat3"],
-    "soybean":   ["soybean", "soybean2"],
+    "soybean":   ["soybean", "soybean2", "soybean3"],
     "sugarcane": ["sugarcane", "sugarcane2", "sugarcane3"],
     "weaht":     ["weaht", "weaht2", "weaht3"],
 }
@@ -38,9 +38,14 @@ class MergeStrategy:
 
     def __init__(self):
         self.history = defaultdict(int)
+        self.phase1_fails = 0     # Tracks how many times direct merges have failed
+        self.lock_phase2 = False  # The global lock switch
 
     def clear_history(self):
+        """Resets the history and locks when the board is clear or boxes are clicked."""
         self.history.clear()
+        self.phase1_fails = 0
+        self.lock_phase2 = False
 
     def plan(self, grid: dict[int, DetectedItem]) -> list[MergeAction]:
         # 0. Deduplicate overlapping items
@@ -69,7 +74,6 @@ class MergeStrategy:
         all_items_list = list(unique_items)
 
         # 3. Process exactly ONE group at a time 
-        # (bot.py will loop and call this multiple times to clear the board)
         for label in labels_by_priority:
             items = by_label[label]
             if len(items) < 3:
@@ -90,17 +94,27 @@ class MergeStrategy:
                 loc_key = (label, round(target.cx / 40) * 40, round(target.cy / 40) * 40)
                 attempts = self.history[loc_key]
 
+                # --- NEW LOGIC: Board Congestion Detection ---
+                # If we detect a failure (attempts == 1) and we aren't locked yet, count it.
+                if attempts == 1 and not self.lock_phase2:
+                    self.phase1_fails += 1
+                    if self.phase1_fails >= 1:
+                        print("\n  [Strategy] ⚠️ Board is crowded! 1 failure detected.")
+                        print("  [Strategy] 🔒 Locking into Swap Method (Phase 2).")
+                        self.lock_phase2 = True
+
                 # Record that we are making an attempt
                 self.history[loc_key] += 1
 
                 # --- ATTEMPT 0: Direct Drag (A -> B, C -> B) ---
-                if attempts == 0:
+                # Will only execute if Phase 2 is NOT locked and it's a fresh item.
+                if not self.lock_phase2 and attempts == 0:
                     return [
                         MergeAction(src1, target, label, tier),
                         MergeAction(src2, target, label, tier)
                     ]
                     
-                # --- ATTEMPT 1+: Stuck Loop Detected! Swap and merge elsewhere PERMANENTLY ---
+                # --- ATTEMPT 1+ (Or Locked): Swap and merge elsewhere PERMANENTLY ---
                 else: 
                     diff_item = self._get_closest_different_item(target, label, all_items_list)
                     if diff_item:
