@@ -33,7 +33,7 @@ CONFIG = {
     "merge_drag_duration": 0.4,   
     "merge_delay_sec":     0.15,  
     "box_click_delay_sec": 0.3,   
-    "max_merges_per_cycle": 15,    # Increased to allow clearing the whole board in one cycle
+    "max_merges_per_cycle": 15,    
     "match_threshold":     0.84,
     "save_debug_frames":   False,
     "templates_dir":       "templates",
@@ -48,7 +48,13 @@ CONFIG = {
     "box_taps":            1,             
     "box_tap_delay":       0.2,           
 
-    # Collectable Items (Clicked once at the end of the cycle)
+    # Multi-step Sequences (Trigger -> Step 1 -> Step 2 ...)
+    "sequences": [
+        {"trigger": "colcrystal2", "steps": ["green_colcrystal"]},
+        {"trigger": "wrenchbox",  "steps": ["open"]}
+    ],
+
+    # Collectable Items
     "collect": ["colweaht", "colgroundweaht", "coldeadweaht",
                 "colcarrot","colgroundcarrot", "coldeadcarrot",
                 "colsoybean", "colgroundsoybean", "coldeadsoybean",
@@ -56,8 +62,8 @@ CONFIG = {
                 "colchick","colgroundchick",
                 "colcow", "colgroundcow",
                 "colgoat", "colgroundgoat",
-                "colcoin",  
-                "colticket","checkmark", "colcrystal"],
+                "coldeadscoin",  
+                "colticket","green_collect"],
     
     # Popup Buttons (Clicked ONLY after opening an exclamation box)
     "popup_buttons": ["green_collect", "make", "close"]
@@ -89,8 +95,8 @@ class FarmMergeBot:
                 n = self.stats["cycles"]
                 print(f"── Cycle {n} ─────────────────────────────────")
                 try:
-                    frame = self.ctrl.screenshot()
-                    self._cycle(frame, mode)
+                    # The screenshot is taken fresh inside the cycle now
+                    self._cycle(mode)
                 except Exception as e:
                     self.stats["errors"] += 1
                     print(f"  [!] Error: {e}")
@@ -123,29 +129,79 @@ class FarmMergeBot:
         exclamations = [i for i in items if i.label == self.cfg["box_label"]]
         print(f"[Debug] {len(exclamations)} reward box(es) detected.")
 
-    def _cycle(self, frame, mode: str):
+    def _cycle(self, mode: str):
         if mode == "debug":
-            self._do_debug(frame)
+            self._do_debug(self.ctrl.screenshot())
             return
 
+        # --- STEP 0: Initial Collection Sweep ---
+        if mode in ("auto", "merge", "boxes"):
+            self._collect_items(phase="Collect - Start")
+
+        # --- STEP 1: Open Boxes ---
         if mode in ("auto", "boxes"):
-            n = self._click_boxes(frame)
+            n = self._click_boxes(self.ctrl.screenshot())
             if n:
                 time.sleep(1.0)
-                frame = self.ctrl.screenshot()
 
+        # --- STEP 2: One Pass Merge Sweep (Loop Removed) ---
         if mode in ("auto", "merge"):
-            total_merges_done = self._do_merges(frame)
+            merges_planned = self._do_merges(self.ctrl.screenshot())
             
-            # If 0 merges were done across the whole loop, hit the wooden box!
-            if total_merges_done == 0:
+            # --- STEP 3: Generator Tap Fallback ---
+            # If 0 merges were planned on the board, hit the wooden box!
+            if merges_planned == 0:
                 self.strategy.clear_history() 
-                self._click_generator(frame)
+                self._click_generator(self.ctrl.screenshot())
 
-            # --- COLLECT: One pass per cycle after ALL merges are done ---
+            # --- STEP 4: Sequences ---
+            time.sleep(0.5)
+            self._run_sequences()
+
+            # --- STEP 5: Final Collection Sweep ---
             time.sleep(0.5) 
-            self._collect_items()
-            # -------------------------------------------------------------
+            self._collect_items(phase="Collect - End")
+
+
+    def _run_sequences(self) -> int:
+        """Executes multi-step processes defined in CONFIG['sequences']."""
+        sequences = self.cfg.get("sequences", [])
+        if not sequences:
+            return 0
+
+        frame = self.ctrl.screenshot()
+        items = self.analyzer.analyze(frame)
+        total_executed = 0
+
+        for seq in sequences:
+            trigger_label = seq["trigger"]
+            steps = seq["steps"]
+
+            triggers = [item for item in items if item.label == trigger_label]
+
+            for trigger in triggers:
+                print(f"  [Sequence] Initiating '{trigger_label}' at ({trigger.cx},{trigger.cy})")
+                self.ctrl.tap(trigger.cx, trigger.cy, delay=0.5)
+
+                for step_label in steps:
+                    time.sleep(1.0) 
+                    step_frame = self.ctrl.screenshot()
+                    step_items = self.analyzer.analyze(step_frame)
+
+                    step_targets = [i for i in step_items if i.label == step_label]
+
+                    if step_targets:
+                        target = step_targets[0]
+                        self.ctrl.tap(target.cx, target.cy, delay=0.5)
+                        print(f"    ✓ Step successful: Clicked '{step_label}' at ({target.cx},{target.cy})")
+                    else:
+                        print(f"    [!] Step failed: Could not find '{step_label}'. Aborting sequence.")
+                        break 
+                
+                total_executed += 1
+                time.sleep(0.5) 
+
+        return total_executed
 
     def _click_boxes(self, frame) -> int:
         """Finds 'exclamation' templates, taps below them, and handles popups."""
@@ -180,8 +236,8 @@ class FarmMergeBot:
                 
         return len(boxes)
     
-    def _collect_items(self) -> int:
-        """Scans the board and clicks collectable items once per cycle."""
+    def _collect_items(self, phase="Collect") -> int:
+        """Scans the board and clicks collectable items once per call."""
         collect_list = self.cfg.get("collect", [])
         total_collected = 0
         
@@ -196,7 +252,7 @@ class FarmMergeBot:
                 print(f"    ✓ Picked up '{item.label}' at ({item.cx},{item.cy})")
             
             time.sleep(0.5) 
-            print(f"  [Collect] Done! Collected {total_collected} items this pass.")
+            print(f"  [{phase}] Done! Collected {total_collected} items this pass.")
             
         return total_collected
 
@@ -219,42 +275,33 @@ class FarmMergeBot:
             print("  [Generator] Done tapping. Waiting for items to spawn.")
 
     def _do_merges(self, frame) -> int:
-        """Continuously merges items until the board is clear of 3-merges."""
-        limit = self.cfg["max_merges_per_cycle"]
-        total_actions = 0
+        """Executes one pass of planned merges (continuous loop removed)."""
+        limit   = self.cfg["max_merges_per_cycle"]
+        items   = self.analyzer.analyze(frame)
+        grid    = self.analyzer.build_grid(items)
+        actions = self.strategy.plan(grid)
 
-        for merge_pass in range(limit):
-            items = self.analyzer.analyze(frame)
-            grid  = self.analyzer.build_grid(items)
-            actions = self.strategy.plan(grid)
+        if not actions:
+            return 0
+
+        print(f"  [Merge] {len(items)} items  |  {len(actions)} actions planned")
+
+        for i, act in enumerate(actions[:limit]):
+            print(f"    [{i+1}] {act}")
+            self.ctrl.drag_item(
+                act.src.cx, act.src.cy,
+                act.dst.cx, act.dst.cy,
+                duration = self.cfg["merge_drag_duration"],
+                delay    = self.cfg["merge_delay_sec"],
+            )
+            self.stats["merges"] += 1
+
+        if self.cfg["save_debug_frames"] and items:
+            ann  = self.analyzer.debug_annotate(frame, items)
+            path = f"logs/frame_{datetime.now().strftime('%H%M%S%f')}.png"
+            cv2.imwrite(path, cv2.cvtColor(ann, cv2.COLOR_RGB2BGR))
             
-            # If no actions are returned, the board has no more valid 3-merges!
-            if not actions:
-                break 
-
-            print(f"  [Merge Pass {merge_pass+1}/{limit}] Executing {len(actions)} actions...")
-
-            for i, act in enumerate(actions):
-                print(f"    [{i+1}] {act}")
-                self.ctrl.drag_item(
-                    act.src.cx, act.src.cy,
-                    act.dst.cx, act.dst.cy,
-                    duration = self.cfg["merge_drag_duration"],
-                    delay    = self.cfg["merge_delay_sec"],
-                )
-                self.stats["merges"] += 1
-                total_actions += 1
-
-            if self.cfg["save_debug_frames"] and items:
-                ann  = self.analyzer.debug_annotate(frame, items)
-                path = f"logs/frame_{datetime.now().strftime('%H%M%S%f')}.png"
-                cv2.imwrite(path, cv2.cvtColor(ann, cv2.COLOR_RGB2BGR))
-                
-            # Wait briefly for items to snap together before grabbing the next frame
-            time.sleep(0.5)
-            frame = self.ctrl.screenshot()
-            
-        return total_actions
+        return len(actions)
 
     def _do_debug(self, frame):
         items = self.analyzer.analyze(frame)

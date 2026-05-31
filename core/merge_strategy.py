@@ -7,13 +7,15 @@ from collections import defaultdict
 from core.screen_analyzer import DetectedItem
 
 MERGE_CHAINS: dict[str, list[str]] = {
+    "weaht":     ["weaht", "weaht2", "weaht3"],
     "carrot":    ["carrot", "carrot2", "carrot3"],
+    "sugarcane": ["sugarcane", "sugarcane2", "sugarcane3"],
+    "soybean":   ["soybean", "soybean2", "soybean3"],
     "chick":     ["chick", "chick2", "chick3"],
     "cow":       ["cow", "cow2", "cow3"],
     "goat":      ["goat", "goat2", "goat3"],
-    "soybean":   ["soybean", "soybean2", "soybean3"],
-    "sugarcane": ["sugarcane", "sugarcane2", "sugarcane3"],
-    "weaht":     ["weaht", "weaht2", "weaht3"],
+    "wrench":     ["wrench", "wrench2", "wrench3", "wrench4"],
+    "box":     ["box", "box2"],
 }
 
 LABEL_TIER: dict[str, int] = {
