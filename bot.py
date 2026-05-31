@@ -40,7 +40,7 @@ CONFIG = {
     
     # Generator Box Settings
     "generator_label":     "wooden_box", 
-    "generator_taps":      10,           
+    "generator_taps":      50,           
     "generator_tap_delay": 0.15, 
     
     # Exclamation Box Settings
@@ -51,7 +51,8 @@ CONFIG = {
     # Multi-step Sequences (Trigger -> Step 1 -> Step 2 ...)
     "sequences": [
         {"trigger": "colcrystal2", "steps": ["green_colcrystal"]},
-        {"trigger": "wrenchbox",  "steps": ["open"]}
+        {"trigger": "wrenchbox",  "steps": ["open"]},
+        {"trigger": "wrenchbox2",  "steps": ["open"]}
     ],
 
     # Collectable Items
@@ -62,7 +63,7 @@ CONFIG = {
                 "colchick","colgroundchick",
                 "colcow", "colgroundcow",
                 "colgoat", "colgroundgoat",
-                "coldeadscoin",  
+                "coldeadscoin", "checkmark",
                 "colticket","green_collect"],
     
     # Popup Buttons (Clicked ONLY after opening an exclamation box)
