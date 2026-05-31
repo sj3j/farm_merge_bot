@@ -7,13 +7,16 @@ from collections import defaultdict
 from core.screen_analyzer import DetectedItem
 
 MERGE_CHAINS: dict[str, list[str]] = {
+    "weaht":     ["weaht", "weaht2", "weaht3"],
     "carrot":    ["carrot", "carrot2", "carrot3"],
+    "soybean":   ["soybean", "soybean2","soybean3"],
+    "sugarcane": ["sugarcane", "sugarcane2", "sugarcane3"],
+
     "chick":     ["chick", "chick2", "chick3"],
     "cow":       ["cow", "cow2", "cow3"],
     "goat":      ["goat", "goat2", "goat3"],
-    "soybean":   ["soybean", "soybean2"],
-    "sugarcane": ["sugarcane", "sugarcane2", "sugarcane3"],
-    "weaht":     ["weaht", "weaht2", "weaht3"],
+    
+
 }
 
 LABEL_TIER: dict[str, int] = {
@@ -106,7 +109,7 @@ class MergeStrategy:
                             MergeAction(target, diff_item, label, tier)
                         ]
                     else:
-                        # Fallback if no different items exist (rare, but possible)
+                        # Fallback if no different items exist on the board
                         spot1 = self._get_empty_pixel_neighbor(target, all_items_list)
                         if spot1:
                             return [
@@ -139,7 +142,7 @@ class MergeStrategy:
         return best
         
     def _get_closest_different_item(self, target: DetectedItem, current_label: str, all_items: list[DetectedItem]) -> Optional[DetectedItem]:
-        """Finds the closest item that is NOT of the current merging type."""
+        """Finds the closest item on the board that is NOT of the current merging type."""
         diff_items = [item for item in all_items if item.label != current_label]
         if not diff_items:
             return None
