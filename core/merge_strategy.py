@@ -11,7 +11,7 @@ MERGE_CHAINS: dict[str, list[str]] = {
     "chick":     ["chick", "chick2", "chick3"],
     "cow":       ["cow", "cow2", "cow3"],
     "goat":      ["goat", "goat2", "goat3"],
-    "soybean":   ["soybean", "soybean2","soybean3"],
+    "soybean":   ["soybean", "soybean2"],
     "sugarcane": ["sugarcane", "sugarcane2", "sugarcane3"],
     "weaht":     ["weaht", "weaht2", "weaht3"],
 }
@@ -93,21 +93,31 @@ class MergeStrategy:
                         MergeAction(src2, target, label, tier)
                     ]
                     
-                # --- ATTEMPT 2: Stuck Loop Detected! (A -> Grass, C -> B) ---
+                # --- ATTEMPT 2: Stuck Loop Detected! Swap and merge elsewhere ---
                 elif attempts == 1:
-                    spot1 = self._get_empty_pixel_neighbor(target, all_items_list)
-                    if spot1:
-                        # Move A to empty grass spot, then move C onto B!
+                    diff_item = self._get_closest_different_item(target, label, all_items_list)
+                    if diff_item:
+                        # 1. Swap src1 (A) with diff_item (X)
+                        # 2. Move src2 (C) to the new location (X)
+                        # 3. Move target (B) to the new location (X) to complete the 3-merge
                         return [
-                            MergeAction(src1, spot1, label, tier),
-                            MergeAction(src2, target, label, tier) 
+                            MergeAction(src1, diff_item, label, tier),
+                            MergeAction(src2, diff_item, label, tier),
+                            MergeAction(target, diff_item, label, tier)
                         ]
                     else:
-                        # Fallback if the board is 100% full
-                        return [
-                            MergeAction(src1, target, label, tier),
-                            MergeAction(src2, target, label, tier)
-                        ]
+                        # Fallback if no different items exist (rare, but possible)
+                        spot1 = self._get_empty_pixel_neighbor(target, all_items_list)
+                        if spot1:
+                            return [
+                                MergeAction(src1, spot1, label, tier),
+                                MergeAction(src2, target, label, tier) 
+                            ]
+                        else:
+                            return [
+                                MergeAction(src1, target, label, tier),
+                                MergeAction(src2, target, label, tier)
+                            ]
 
         # If all items are processed or blacklisted, return empty (this triggers the wooden box)
         return []
@@ -127,6 +137,13 @@ class MergeStrategy:
                 if d < best_d:
                     best_d, best = d, (items[i], items[j])
         return best
+        
+    def _get_closest_different_item(self, target: DetectedItem, current_label: str, all_items: list[DetectedItem]) -> Optional[DetectedItem]:
+        """Finds the closest item that is NOT of the current merging type."""
+        diff_items = [item for item in all_items if item.label != current_label]
+        if not diff_items:
+            return None
+        return min(diff_items, key=lambda x: self._dist(target, x))
         
     def _get_empty_pixel_neighbor(self, target: DetectedItem, all_items: list[DetectedItem]) -> Optional[DetectedItem]:
         offsets = [(95, 0), (-95, 0), (0, 80), (0, -80), (47, 40), (-47, -40), (47, -40), (-47, 40)]

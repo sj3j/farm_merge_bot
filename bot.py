@@ -51,7 +51,15 @@ CONFIG = {
     "box_tap_delay":       0.2,           
 
     # NEW: Collectable Items (Clicked once at the end of the cycle)
-    "collect": ["colcarrot", "colticket", "colchick", "colcow", "colgoat", "colsoybean", "colsugarcane", "colweaht", "colgroundweaht", "colgroundcarrot", "colgroundchick", "colgroundcow", "colgroundgoat", "colgroundsoybean", "colgroundsugarcane", "checkmark"],
+    "collect": ["colweaht", "colgroundweaht", "coldeadweaht",
+                "colcarrot","colgroundcarrot", "coldeadcarrot",
+                "colsoybean", "colgroundsoybean", "coldeadsoybean",
+                "colsugarcane", "colgroundsugarcane", "coldeadsugarcane",
+                "colchick","colgroundchick",
+                "colcow", "colgroundcow",
+                "colgoat", "colgroundgoat",
+                "colcoin",  
+                "colticket","checkmark"],
     
     # NEW: Popup Buttons (Clicked ONLY after opening an exclamation box)
     "popup_buttons": ["green_collect", "make", "close"]
