@@ -6,16 +6,16 @@ from typing import Optional
 from collections import defaultdict
 from core.screen_analyzer import DetectedItem
 
-# EXTENDED TO TIER 6: The bot will now recognize and merge up to level 6 crops
+# levels are to 3: The bot will now recognize and merge up to level 3 crops
 MERGE_CHAINS: dict[str, list[str]] = {
-    "weaht":     ["weaht", "weaht2", "weaht3", "weaht4", "weaht5", "weaht6"],
-    "carrot":    ["carrot", "carrot2", "carrot3", "carrot4", "carrot5", "carrot6"],
-    "sugarcane": ["sugarcane", "sugarcane2", "sugarcane3", "sugarcane4", "sugarcane5", "sugarcane6"],
-    "soybean":   ["soybean", "soybean2", "soybean3", "soybean4", "soybean5", "soybean6"],
-    "chick":     ["chick", "chick2", "chick3", "chick4", "chick5", "chick6"],
-    "cow":       ["cow", "cow2", "cow3", "cow4", "cow5", "cow6"],
-    "goat":      ["goat", "goat2", "goat3", "goat4", "goat5", "goat6"],
-    "pig":       ["pig", "pig2", "pig3", "pig4", "pig5", "pig6"],
+    "weaht":     ["weaht", "weaht2", "weaht3"],
+    "carrot":    ["carrot", "carrot2", "carrot3"],
+    "sugarcane": ["sugarcane", "sugarcane2", "sugarcane3"],
+    "soybean":   ["soybean", "soybean2", "soybean3"],
+    "chick":     ["chick", "chick2", "chick3"],
+    "cow":       ["cow", "cow2", "cow3"],
+    "goat":      ["goat", "goat2", "goat3"],
+    "pig":       ["pig", "pig2", "pig3"],
     "wrench":    ["wrench", "wrench2", "wrench3", "wrench4", "wrench5", "wrench6"],
     "box":       ["box", "box2", "box3", "box4"],
 }
