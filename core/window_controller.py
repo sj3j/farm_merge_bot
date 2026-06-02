@@ -19,8 +19,6 @@ import pyautogui
 import mss
 from PIL import Image
 
-
-
 pyautogui.PAUSE    = 0.04
 pyautogui.FAILSAFE = True   # move mouse to top-left corner to abort
 
@@ -32,7 +30,6 @@ class WindowController:
     Captures a specific screen region and sends mouse clicks/drags
     with coordinates relative to that region's top-left corner.
     """
-
 
     def __init__(self, region: dict = None):
         """
@@ -53,39 +50,6 @@ class WindowController:
     # ──────────────────────────────────────────────
     # SCREENSHOT
     # ──────────────────────────────────────────────
-
-
-
-# Inside your WindowController class...
-
-    def drag_item(self, start_x, start_y, end_x, end_y, duration=1.5, delay=0.5):
-        """
-        Forces a drag state by performing a 'micro-move' after clicking down.
-        This bypasses HTML5 canvas anti-bot/synthetic click dropping.
-        """
-        import pyautogui
-        import time
-
-        # 1. Move to the center of the item and settle
-        pyautogui.moveTo(start_x, start_y, duration=0.2)
-        time.sleep(0.2)
-        
-        # 2. Press down
-        pyautogui.mouseDown()
-        time.sleep(0.2)
-        
-        # 3. THE FIX: The Micro-Drag
-        # Move slightly to break the static threshold and trigger the game's drag state
-        pyautogui.moveTo(start_x + 5, start_y + 5, duration=0.2)
-        time.sleep(0.3) # Wait for the item to visually "pop up" in the game
-        
-        # 4. Drag to the destination slowly
-        pyautogui.moveTo(end_x, end_y, duration=duration, tween=pyautogui.linear)
-        time.sleep(0.3) # Pause at destination before dropping
-        
-        # 5. Release and rest
-        pyautogui.mouseUp()
-        time.sleep(delay)
 
     def screenshot(self) -> np.ndarray:
         """
@@ -119,18 +83,30 @@ class WindowController:
     def drag_item(self, x1: int, y1: int, x2: int, y2: int,
                   duration: float = 0.35, delay: float = 0.5):
         """
-        Smooth drag from (x1,y1) to (x2,y2) — region-relative.
-        Simulates mouse-down → move → mouse-up.
+        Forces a drag state by performing a 'micro-move' after clicking down.
+        This bypasses HTML5 canvas anti-bot/synthetic click dropping.
         """
         ax1, ay1 = self._abs(x1, y1)
         ax2, ay2 = self._abs(x2, y2)
 
-        pyautogui.moveTo(ax1, ay1, duration=0.08)
+        # 1. Move to the center of the item and settle
+        pyautogui.moveTo(ax1, ay1, duration=0.2)
+        time.sleep(0.2)
+        
+        # 2. Press down
         pyautogui.mouseDown(button="left")
-        time.sleep(1.2)
-        pyautogui.moveTo(ax2, ay2, duration=duration,
-                         tween=pyautogui.easeInOutQuad)
-        time.sleep(0.1)
+        time.sleep(0.2)
+        
+        # 3. THE FIX: The Micro-Drag
+        # Move slightly to break the static threshold and trigger the game's drag state
+        pyautogui.moveTo(ax1 + 5, ay1 + 5, duration=0.2)
+        time.sleep(0.3) # Wait for the item to visually "pop up" in the game
+        
+        # 4. Drag to the destination
+        pyautogui.moveTo(ax2, ay2, duration=duration, tween=pyautogui.linear)
+        time.sleep(0.3) # Pause at destination before dropping
+        
+        # 5. Release and rest
         pyautogui.mouseUp(button="left")
         time.sleep(delay)
 
@@ -177,5 +153,3 @@ class WindowController:
         print("  Run  python select_region.py  to define the game area.")
         w, h = pyautogui.size()
         return {"left": 0, "top": 0, "width": w, "height": h}
-    
-    
