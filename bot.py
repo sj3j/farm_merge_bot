@@ -30,8 +30,8 @@ from core.merge_strategy    import MergeStrategy
 
 CONFIG = {
     "loop_interval_sec":   1.0,   
-    "merge_drag_duration": 0.35,  # Slightly snappier drag
-    "merge_delay_sec":     0.45,  # INCREASED: Gives the game time to finish the swap animation before the next drag
+    "merge_drag_duration": 0.4,   
+    "merge_delay_sec":     0.15,  
     "box_click_delay_sec": 0.3,   
     "max_merges_per_cycle": 15,    
     "match_threshold":     0.84,
@@ -145,7 +145,7 @@ class FarmMergeBot:
             if n:
                 time.sleep(1.0)
 
-        # --- STEP 2: One Pass Merge Sweep ---
+        # --- STEP 2: One Pass Merge Sweep (Loop Removed) ---
         if mode in ("auto", "merge"):
             merges_planned = self._do_merges(self.ctrl.screenshot())
             
@@ -162,6 +162,7 @@ class FarmMergeBot:
             # --- STEP 5: Final Collection Sweep ---
             time.sleep(0.5) 
             self._collect_items(phase="Collect - End")
+
 
     def _run_sequences(self) -> int:
         """Executes multi-step processes defined in CONFIG['sequences']."""
@@ -275,7 +276,7 @@ class FarmMergeBot:
             print("  [Generator] Done tapping. Waiting for items to spawn.")
 
     def _do_merges(self, frame) -> int:
-        """Executes one pass of planned merges."""
+        """Executes one pass of planned merges (continuous loop removed)."""
         limit   = self.cfg["max_merges_per_cycle"]
         items   = self.analyzer.analyze(frame)
         grid    = self.analyzer.build_grid(items)
